@@ -1,4 +1,4 @@
-name: Build Custom RustDesk Windows Portable
+name: Build Custom RustDesk Real Portable
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
     uses: ./.github/workflows/bridge.yml
 
   build-windows:
-    name: Build Windows portable exe
+    name: Build Windows real portable exe
     runs-on: windows-2022
     needs: generate-bridge
 
@@ -51,8 +51,12 @@ jobs:
           }
 
           $path = "libs/hbb_common/src/config.rs"
-          $content = Get-Content $path -Raw
 
+          if (!(Test-Path $path)) {
+            throw "Cannot find $path"
+          }
+
+          $content = Get-Content $path -Raw
           $server = $env:CUSTOM_ID_SERVER.Trim()
           $key = $env:CUSTOM_KEY.Trim()
 
@@ -70,6 +74,7 @@ jobs:
 
           Set-Content $path $content -Encoding UTF8
 
+          Write-Host "Patched server config:"
           Select-String -Path $path -Pattern "RENDEZVOUS_SERVERS|RS_PUB_KEY"
 
       - name: Restore bridge files
@@ -94,9 +99,16 @@ jobs:
         run: |
           flutter doctor -v
           flutter precache --windows
-          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+
+          Invoke-WebRequest `
+            -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip `
+            -OutFile windows-x64-release.zip
+
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          Move-Item -Force windows-x64-release/* "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/"
+
+          Move-Item -Force `
+            windows-x64-release/* `
+            "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/"
 
       - name: Patch Flutter SDK
         shell: bash
@@ -115,7 +127,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: windows-portable-custom
+          prefix-key: windows-real-portable-custom
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -133,28 +145,54 @@ jobs:
             --triplet x64-windows-static \
             --x-install-root="$VCPKG_ROOT/installed"
 
-      - name: Build portable exe
+      - name: Build real portable exe
         shell: pwsh
         run: |
           python3 .\build.py --portable --flutter
 
-      - name: Collect portable exe
+      - name: Collect real portable exe only
         shell: pwsh
         run: |
+          if (Test-Path ".\artifact") {
+            Remove-Item ".\artifact" -Recurse -Force
+          }
+
           New-Item -ItemType Directory -Force -Path ".\artifact"
 
-          Get-ChildItem -Path . -Recurse -File -Include "*.exe" |
+          Write-Host "Searching generated exe files..."
+          Get-ChildItem -Path "." -Recurse -File -Include "*.exe" |
+            Select-Object FullName, Name, Length |
+            Format-Table -AutoSize
+
+          $candidates = Get-ChildItem -Path "." -Recurse -File -Include "*.exe" |
             Where-Object {
               $_.FullName -notmatch "\\target\\" -and
-              $_.FullName -notmatch "\\build\\windows\\x64\\runner\\Release\\rustdesk.exe"
-            } |
-            Copy-Item -Destination ".\artifact" -Force
+              $_.FullName -notmatch "\\deps\\" -and
+              $_.Name -notmatch "setup" -and
+              $_.Name -notmatch "install" -and
+              $_.Name -notmatch "installer" -and
+              (
+                $_.Name -match "portable" -or
+                $_.Name -match "rustdesk.*windows" -or
+                $_.Name -match "rustdesk.*x86_64" -or
+                $_.Name -eq "rustdesk.exe"
+              )
+            }
 
-          Write-Host "Collected files:"
+          if (!$candidates -or $candidates.Count -eq 0) {
+            throw "No portable exe found. Check build output above."
+          }
+
+          foreach ($file in $candidates) {
+            Write-Host "Copying portable candidate: $($file.FullName)"
+            Copy-Item $file.FullName -Destination ".\artifact" -Force
+          }
+
+          Write-Host "Final artifact:"
           Get-ChildItem ".\artifact"
 
-      - name: Upload portable exe
+      - name: Upload real portable exe
         uses: actions/upload-artifact@v4
         with:
-          name: my-rustdesk-portable
+          name: my-rustdesk-real-portable
           path: artifact
