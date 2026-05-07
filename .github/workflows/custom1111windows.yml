@@ -47,12 +47,14 @@ jobs:
           Set-Content $path $content -Encoding UTF8
           Write-Host "Patched config.rs successfully"
 
-      # Restore bridge artifact if exists
-      - name: Restore bridge files
-        uses: actions/download-artifact@v4
-        with:
-          name: bridge-artifact
-          path: ./
+      # Generate bridge files directly
+      - name: Generate Flutter-Rust Bridge
+        shell: pwsh
+        run: |
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs `
+            --dart-output ./flutter/lib/generated_bridge.dart `
+            --c-output ./flutter/macos/Runner/bridge_generated.h `
+            --llvm-path "D:\1\LLVM"
 
       # Install LLVM
       - name: Install LLVM
@@ -90,7 +92,7 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
-      # Build single-file portable exe (official portable logic)
+      # Build the official single-file portable exe
       - name: Build single-file portable exe
         shell: pwsh
         run: |
@@ -102,11 +104,9 @@ jobs:
         run: |
           if (Test-Path ".\artifact") { Remove-Item ".\artifact" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path ".\artifact"
-
-          # Copy only the final single-file portable exe
-          $releaseExe = Get-ChildItem -Path ".\flutter\build\windows\x64\runner\Release" -Filter "rustdesk*.exe" | Where-Object { $_.Name -notmatch "setup|install|installer" }
+          $releaseExe = Get-ChildItem -Path ".\flutter\build\windows\x64\runner\Release" -Filter "rustdesk*.exe" |
+            Where-Object { $_.Name -notmatch "setup|install|installer" }
           if (!$releaseExe) { throw "Portable exe not found. Check build output." }
-
           Copy-Item $releaseExe.FullName ".\artifact" -Force
           Write-Host "Artifact ready:"
           Get-ChildItem ".\artifact"
