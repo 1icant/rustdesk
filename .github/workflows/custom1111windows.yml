@@ -1,4 +1,4 @@
-name: Build RustDesk Complete Single-File Portable
+name: Build RustDesk Self-Extracting Single-File Portable
 
 on:
   workflow_dispatch:
@@ -16,14 +16,15 @@ env:
 jobs:
   build-windows:
     runs-on: windows-2022
+
     steps:
-      # Checkout repository
+      # Checkout RustDesk repo with submodules
       - name: Checkout RustDesk
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Patch config.rs with ID server and Key
+      # Patch ID Server and Key
       - name: Patch config.rs
         shell: pwsh
         env:
@@ -32,16 +33,8 @@ jobs:
         run: |
           $path = "libs/hbb_common/src/config.rs"
           $content = Get-Content $path -Raw
-          $content = [regex]::Replace(
-            $content,
-            'pub const RENDEZVOUS_SERVERS:\s*&\[\&str\]\s*=\s*&\[[^\]]*\];',
-            'pub const RENDEZVOUS_SERVERS: &[&str] = &["' + $env:CUSTOM_ID_SERVER + '"];'
-          )
-          $content = [regex]::Replace(
-            $content,
-            'pub const RS_PUB_KEY:\s*&str\s*=\s*"[^"]*";',
-            'pub const RS_PUB_KEY: &str = "' + $env:CUSTOM_KEY + '";'
-          )
+          $content = [regex]::Replace($content,'pub const RENDEZVOUS_SERVERS:\s*&\[\&str\]\s*=\s*&\[[^\]]*\];','pub const RENDEZVOUS_SERVERS: &[&str] = &["' + $env:CUSTOM_ID_SERVER + '"];')
+          $content = [regex]::Replace($content,'pub const RS_PUB_KEY:\s*&str\s*=\s*"[^"]*";','pub const RS_PUB_KEY: &str = "' + $env:CUSTOM_KEY + '";')
           Set-Content $path $content -Encoding UTF8
 
       # Install LLVM
@@ -71,7 +64,7 @@ jobs:
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --locked
 
-      # Run flutter pub get to ensure .dart_tool exists
+      # Run flutter pub get
       - name: Flutter pub get
         shell: pwsh
         run: |
@@ -79,8 +72,8 @@ jobs:
           flutter pub get
           cd ..
 
-      # Generate Flutter-Rust bridge files
-      - name: Generate Flutter-Rust Bridge
+      # Generate Flutter-Rust bridge
+      - name: Generate bridge
         shell: pwsh
         run: |
           flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs `
@@ -96,7 +89,6 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      # Install vcpkg dependencies
       - name: Install vcpkg dependencies
         shell: bash
         env:
@@ -104,26 +96,27 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
-      # Build the official single-file portable exe
-      - name: Build single-file portable exe
+      # Build self-extracting single-file portable exe
+      - name: Build self-extracting portable
         shell: pwsh
         run: |
-          python3 .\build.py --portable --flutter
+          python3 .\build.py --portable --flutter --singlefile
 
-      # Collect portable single-file exe and all dependencies
-      - name: Collect portable exe with all DLLs
+      # Collect the single-file portable exe
+      - name: Collect portable exe
         shell: pwsh
         run: |
           if (Test-Path ".\artifact") { Remove-Item ".\artifact" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path ".\artifact"
-          $releaseFolder = ".\flutter\build\windows\x64\runner\Release"
-          Copy-Item "$releaseFolder\*" ".\artifact" -Recurse -Force
+          $releaseExe = Get-ChildItem -Path ".\flutter\build\windows\x64\runner\Release" -Filter "rustdesk*.exe"
+          if (!$releaseExe) { throw "Single-file portable exe not found." }
+          Copy-Item $releaseExe.FullName ".\artifact" -Force
           Write-Host "Artifact ready:"
           Get-ChildItem ".\artifact"
 
-      # Upload the artifact
+      # Upload artifact
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-single-file-complete
+          name: rustdesk-singlefile-portable
           path: artifact
