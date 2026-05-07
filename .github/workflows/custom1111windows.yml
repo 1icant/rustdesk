@@ -19,11 +19,13 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      # Checkout RustDesk repo with submodules
       - name: Checkout RustDesk
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Patch config.rs to embed your ID Server and Key
       - name: Patch built-in server
         shell: pwsh
         env:
@@ -45,17 +47,20 @@ jobs:
           Set-Content $path $content -Encoding UTF8
           Write-Host "Patched config.rs successfully"
 
+      # Install LLVM
       - name: Install LLVM
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
+      # Install Flutter
       - name: Install Flutter
         uses: subosito/flutter-action@v2.12.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
+      # Install Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
@@ -63,11 +68,13 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
+      # Install flutter_rust_bridge_codegen
       - name: Install flutter_rust_bridge_codegen
         shell: pwsh
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --locked
 
+      # Setup vcpkg and install dependencies
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -82,6 +89,7 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
+      # Generate Flutter-Rust bridge files
       - name: Generate Flutter-Rust Bridge
         shell: pwsh
         run: |
@@ -90,12 +98,14 @@ jobs:
             --c-output ./flutter/macos/Runner/bridge_generated.h `
             --llvm-path "D:\1\LLVM"
 
+      # Build single-file portable exe
       - name: Build single-file portable exe
         shell: pwsh
         run: |
           python3 .\build.py --portable --flutter
 
-      - name: Collect single-file portable exe
+      # Collect the portable exe
+      - name: Collect portable exe
         shell: pwsh
         run: |
           if (Test-Path ".\artifact") { Remove-Item ".\artifact" -Recurse -Force }
@@ -107,6 +117,7 @@ jobs:
           Write-Host "Artifact ready:"
           Get-ChildItem ".\artifact"
 
+      # Upload the portable exe artifact
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
