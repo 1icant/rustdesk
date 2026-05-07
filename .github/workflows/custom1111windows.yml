@@ -1,4 +1,4 @@
-name: Build RustDesk Single-File Portable
+name: Build RustDesk Complete Single-File Portable
 
 on:
   workflow_dispatch:
@@ -15,18 +15,16 @@ env:
 
 jobs:
   build-windows:
-    name: Build Windows Single-File Portable
     runs-on: windows-2022
-
     steps:
-      # Checkout RustDesk repo with submodules
+      # Checkout repository
       - name: Checkout RustDesk
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # Patch config.rs to embed your ID Server and Key
-      - name: Patch built-in server
+      # Patch config.rs with ID server and Key
+      - name: Patch config.rs
         shell: pwsh
         env:
           CUSTOM_ID_SERVER: ${{ secrets.RUSTDESK_ID_SERVER }}
@@ -45,7 +43,6 @@ jobs:
             'pub const RS_PUB_KEY: &str = "' + $env:CUSTOM_KEY + '";'
           )
           Set-Content $path $content -Encoding UTF8
-          Write-Host "Patched config.rs successfully"
 
       # Install LLVM
       - name: Install LLVM
@@ -74,7 +71,7 @@ jobs:
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --locked
 
-      # Run flutter pub get
+      # Run flutter pub get to ensure .dart_tool exists
       - name: Flutter pub get
         shell: pwsh
         run: |
@@ -82,7 +79,7 @@ jobs:
           flutter pub get
           cd ..
 
-      # Generate Flutter-Rust bridge
+      # Generate Flutter-Rust bridge files
       - name: Generate Flutter-Rust Bridge
         shell: pwsh
         run: |
@@ -99,6 +96,7 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      # Install vcpkg dependencies
       - name: Install vcpkg dependencies
         shell: bash
         env:
@@ -106,28 +104,26 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
-      # Build single-file portable exe
+      # Build the official single-file portable exe
       - name: Build single-file portable exe
         shell: pwsh
         run: |
           python3 .\build.py --portable --flutter
 
-      # Collect the single-file portable exe
-      - name: Collect portable exe
+      # Collect portable single-file exe and all dependencies
+      - name: Collect portable exe with all DLLs
         shell: pwsh
         run: |
           if (Test-Path ".\artifact") { Remove-Item ".\artifact" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path ".\artifact"
-          $releaseExe = Get-ChildItem -Path ".\flutter\build\windows\x64\runner\Release" -Filter "rustdesk*.exe" |
-            Where-Object { $_.Name -notmatch "setup|install|installer" }
-          if (!$releaseExe) { throw "Portable exe not found. Check build output." }
-          Copy-Item $releaseExe.FullName ".\artifact" -Force
+          $releaseFolder = ".\flutter\build\windows\x64\runner\Release"
+          Copy-Item "$releaseFolder\*" ".\artifact" -Recurse -Force
           Write-Host "Artifact ready:"
           Get-ChildItem ".\artifact"
 
-      # Upload the portable exe artifact
+      # Upload the artifact
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-single-file-portable
+          name: rustdesk-single-file-complete
           path: artifact
