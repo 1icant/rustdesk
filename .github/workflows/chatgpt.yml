@@ -1,4 +1,4 @@
-name: Build RustDesk Single-File Portable
+name: Build RustDesk Single-File Portable1
 
 on:
   workflow_dispatch:
@@ -19,11 +19,13 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      # Checkout the repo with submodules
       - name: Checkout RustDesk
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Patch server config with your ID server and Key
       - name: Patch built-in server
         shell: pwsh
         env:
@@ -45,17 +47,27 @@ jobs:
           Set-Content $path $content -Encoding UTF8
           Write-Host "Patched config.rs successfully"
 
+      # Restore bridge artifact if exists
+      - name: Restore bridge files
+        uses: actions/download-artifact@v4
+        with:
+          name: bridge-artifact
+          path: ./
+
+      # Install LLVM
       - name: Install LLVM
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
+      # Install Flutter
       - name: Install Flutter
         uses: subosito/flutter-action@v2.12.0
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
+      # Install Rust
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
@@ -63,6 +75,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
           components: rustfmt
 
+      # Setup vcpkg and install dependencies
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -77,22 +90,28 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
+      # Build single-file portable exe (official portable logic)
       - name: Build single-file portable exe
         shell: pwsh
         run: |
           python3 .\build.py --portable --flutter
 
+      # Collect the resulting portable exe
       - name: Collect single-file portable exe
         shell: pwsh
         run: |
-          if (Test-Path ".\artifact") {
-            Remove-Item ".\artifact" -Recurse -Force
-          }
+          if (Test-Path ".\artifact") { Remove-Item ".\artifact" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path ".\artifact"
-          Copy-Item ".\flutter\build\windows\x64\runner\Release\rustdesk.exe" ".\artifact" -Force
+
+          # Copy only the final single-file portable exe
+          $releaseExe = Get-ChildItem -Path ".\flutter\build\windows\x64\runner\Release" -Filter "rustdesk*.exe" | Where-Object { $_.Name -notmatch "setup|install|installer" }
+          if (!$releaseExe) { throw "Portable exe not found. Check build output." }
+
+          Copy-Item $releaseExe.FullName ".\artifact" -Force
           Write-Host "Artifact ready:"
           Get-ChildItem ".\artifact"
 
+      # Upload the portable exe
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
