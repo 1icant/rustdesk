@@ -74,7 +74,24 @@ jobs:
         run: |
           cargo install flutter_rust_bridge_codegen --version 1.80.1 --locked
 
-      # Setup vcpkg and install dependencies
+      # Run flutter pub get
+      - name: Flutter pub get
+        shell: pwsh
+        run: |
+          cd flutter
+          flutter pub get
+          cd ..
+
+      # Generate Flutter-Rust bridge
+      - name: Generate Flutter-Rust Bridge
+        shell: pwsh
+        run: |
+          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs `
+            --dart-output ./flutter/lib/generated_bridge.dart `
+            --c-output ./flutter/macos/Runner/bridge_generated.h `
+            --llvm-path "D:\1\LLVM"
+
+      # Setup vcpkg
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -89,22 +106,13 @@ jobs:
         run: |
           "$VCPKG_ROOT/vcpkg" install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
 
-      # Generate Flutter-Rust bridge files
-      - name: Generate Flutter-Rust Bridge
-        shell: pwsh
-        run: |
-          flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs `
-            --dart-output ./flutter/lib/generated_bridge.dart `
-            --c-output ./flutter/macos/Runner/bridge_generated.h `
-            --llvm-path "D:\1\LLVM"
-
       # Build single-file portable exe
       - name: Build single-file portable exe
         shell: pwsh
         run: |
           python3 .\build.py --portable --flutter
 
-      # Collect the portable exe
+      # Collect the single-file portable exe
       - name: Collect portable exe
         shell: pwsh
         run: |
